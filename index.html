@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRT Voice Cloning & Auto Reader</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        h1 { margin: 0 0 8px 0; font-size: 24px; }
+        p.subtitle { margin: 0 0 20px 0; color: #64748b; font-size: 14px; }
+        h2 { font-size: 16px; margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px; }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        input[type="file"], select, input[type="range"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-sizing: border-box;
+            background: #fff;
+            font-size: 14px;
+        }
+
+        .voice-card {
+            background: #f1f5f9;
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+            font-size: 15px;
+        }
+
+        .btn:hover { background: var(--primary-hover); }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+        .preview-list {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            background: #fafafa;
+        }
+
+        .subtitle-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+        }
+        .subtitle-item:last-child { border-bottom: none; }
+        .subtitle-time { color: #2563eb; font-weight: 600; font-size: 11px; }
+
+        .status {
+            margin-top: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #2563eb;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div>
+        <h1>🎙️ Tool Đọc SRT Theo Giọng Mẫu</h1>
+        <p class="subtitle">Lưu mẫu giọng đọc chính và tự động đọc nối file phụ đề SRT</p>
+    </div>
+
+    <!-- Bước 1: Mẫu Giọng -->
+    <div class="card">
+        <h2>1. Chọn / Lưu Giọng Đọc Chính</h2>
+        <div class="form-group">
+            <label>Tải file Audio mẫu giọng (.mp3 / .wav) để phân tích tông giọng:</label>
+            <input type="file" id="sampleAudio" accept="audio/*">
+        </div>
+        
+        <div class="voice-card" id="voiceStatus" style="display: none;">
+            <div>
+                <strong id="voiceName">Đã lưu giọng mẫu</strong>
+                <div style="font-size: 12px; color: #64748b;" id="voiceDetail">Sẵn sàng sử dụng cho các lần sau</div>
+            </div>
+            <button style="width: auto; padding: 6px 12px; font-size: 12px;" class="btn" onclick="clearSavedVoice()">Xóa giọng</button>
+        </div>
+
+        <div class="form-group" style="margin-top: 15px;">
+            <label>Giọng đọc TTS tương thích (Tiếng Việt):</label>
+            <select id="ttsVoices"></select>
+        </div>
+    </div>
+
+    <!-- Bước 2: SRT File -->
+    <div class="card">
+        <h2>2. Nhập File Phụ Đề (.SRT)</h2>
+        <div class="form-group">
+            <input type="file" id="srtFile" accept=".srt">
+        </div>
+
+        <div id="srtPreviewGroup" style="display: none;">
+            <label>Danh sách câu đọc:</label>
+            <div class="preview-list" id="srtPreview"></div>
+        </div>
+    </div>
+
+    <!-- Bước 3: Điều khiển và xuất file -->
+    <div class="card">
+        <h2>3. Xử Lý & Xuất Âm Thanh</h2>
+        <button class="btn" id="generateBtn" onclick="startGeneration()">Bắt Đầu Tạo Audio Khớp SRT</button>
+        <div class="status" id="statusText"></div>
+
+        <audio id="finalAudio" controls style="width: 100%; margin-top: 15px; display: none;"></audio>
+    </div>
+</div>
+
+<script>
+    let savedVoiceSample = null;
+    let parsedSRT = [];
+    let synth = window.speechSynthesis;
+    let voices = [];
+
+    // Tải danh sách voice hệ thống
+    function populateVoices() {
+        voices = synth.getVoices();
+        const select = document.getElementById('ttsVoices');
+        select.innerHTML = '';
+        
+        const viVoices = voices.filter(v => v.lang.includes('vi') || v.lang.includes('VI'));
+        const listToUse = viVoices.length > 0 ? viVoices : voices;
+
+        listToUse.forEach((voice) => {
+            const option = document.createElement('option');
+            option.textContent = `${voice.name} (${voice.lang})`;
+            option.setAttribute('data-name', voice.name);
+            select.appendChild(option);
+        });
+    }
+
+    populateVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = populateVoices;
+    }
+
+    // Xử lý upload file giọng mẫu & lưu LocalStorage
+    document.getElementById('sampleAudio').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            localStorage.setItem('saved_voice_sample', evt.target.result);
+            localStorage.setItem('saved_voice_name', file.name);
+            showSavedVoice(file.name);
+        };
+        reader.readAsDataURL(file);
+    });
+
+    function showSavedVoice(name) {
+        document.getElementById('voiceStatus').style.display = 'flex';
+        document.getElementById('voiceName').innerText = `Giọng mẫu: ${name}`;
+    }
+
+    function clearSavedVoice() {
+        localStorage.removeItem('saved_voice_sample');
+        localStorage.removeItem('saved_voice_name');
+        document.getElementById('voiceStatus').style.display = 'none';
+        document.getElementById('sampleAudio').value = '';
+    }
+
+    // Load giọng cũ nếu có
+    window.onload = () => {
+        const savedName = localStorage.getItem('saved_voice_name');
+        if (savedName) showSavedVoice(savedName);
+    };
+
+    // Parse SRT
+    document.getElementById('srtFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const text = await file.text();
+        parsedSRT = parseSRT(text);
+
+        const preview = document.getElementById('srtPreview');
+        preview.innerHTML = '';
+        parsedSRT.forEach(item => {
+            preview.innerHTML += `
+                <div class="subtitle-item">
+                    <span class="subtitle-time">[${item.start}s - ${item.end}s]</span> ${item.text}
+                </div>
+            `;
+        });
+        document.getElementById('srtPreviewGroup').style.display = 'block';
+    });
+
+    function parseSRT(data) {
+        const pattern = /(\d+)\n(\d\d:\d\d:\d\d,\d\d\d) --> (\d\d:\d\d:\d\d,\d\d\d)\n([\s\S]*?)(?=\n\n|\n*$)/g;
+        const res = [];
+        let m;
+        while ((m = pattern.exec(data)) !== null) {
+            res.push({
+                id: m[1],
+                start: timeToSec(m[2]),
+                end: timeToSec(m[3]),
+                text: m[4].replace(/\n/g, ' ')
+            });
+        }
+        return res;
+    }
+
+    function timeToSec(t) {
+        const [h, m, sMs] = t.split(':');
+        const [s, ms] = sMs.split(',');
+        return parseInt(h)*3600 + parseInt(m)*60 + parseInt(s) + parseInt(ms)/1000;
+    }
+
+    // Bắt đầu đọc và ghép
+    async function startGeneration() {
+        if (parsedSRT.length === 0) {
+            alert('Vui lòng chọn file SRT!');
+            return;
+        }
+
+        const status = document.getElementById('statusText');
+        status.innerText = "Đang tiến hành đọc và căn chỉnh mốc thời gian...";
+
+        const select = document.getElementById('ttsVoices');
+        const selectedVoiceName = select.selectedOptions[0]?.getAttribute('data-name');
+        const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+
+        synth.cancel(); // Reset
+
+        for (let i = 0; i < parsedSRT.length; i++) {
+            const item = parsedSRT[i];
+            status.innerText = `Đang đọc câu ${i+1}/${parsedSRT.length}: "${item.text}"`;
+
+            await new Promise((resolve) => {
+                const utterance = new SpeechSynthesisUtterance(item.text);
+                if (selectedVoice) utterance.voice = selectedVoice;
+                
+                // Tùy chỉnh độ dài câu
+                const duration = item.end - item.start;
+                utterance.rate = Math.max(0.5, Math.min(2, item.text.length / (duration * 5)));
+
+                utterance.onend = () => setTimeout(resolve, 200);
+                utterance.onerror = () => resolve();
+
+                synth.speak(utterance);
+            });
+        }
+
+        status.innerText = "Đã hoàn thành đọc toàn bộ phụ đề!";
+    }
+</script>
+
+</body>
+</html>
