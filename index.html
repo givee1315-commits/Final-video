@@ -249,19 +249,44 @@
         document.getElementById('srtPreviewGroup').style.display = 'block';
     });
 
-    function parseSRT(data) {
-        const pattern = /(\d+)\n(\d\d:\d\d:\d\d,\d\d\d) --> (\d\d:\d\d:\d\d,\d\d\d)\n([\s\S]*?)(?=\n\n|\n*$)/g;
+   function parseSRT(data) {
+        // Chuẩn hóa ký tự xuống dòng
+        const cleanData = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+        const blocks = cleanData.split(/\n\s*\n/);
         const res = [];
-        let m;
-        while ((m = pattern.exec(data)) !== null) {
-            res.push({
-                id: m[1],
-                start: timeToSec(m[2]),
-                end: timeToSec(m[3]),
-                text: m[4].replace(/\n/g, ' ')
-            });
-        }
+
+        blocks.forEach(block => {
+            const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            if (lines.length >= 2) {
+                // Tìm dòng chứa mốc thời gian ->
+                const timeLineIndex = lines.findIndex(l => l.includes('-->'));
+                if (timeLineIndex !== -1) {
+                    const timeStr = lines[timeLineIndex];
+                    const times = timeStr.split('-->').map(s => s.trim());
+                    if (times.length === 2) {
+                        const textLines = lines.slice(timeLineIndex + 1).join(' ');
+                        res.push({
+                            id: timeLineIndex > 0 ? lines[0] : res.length + 1,
+                            start: timeToSec(times[0]),
+                            end: timeToSec(times[1]),
+                            text: textLines
+                        });
+                    }
+                }
+            }
+        });
         return res;
+    }
+
+    function timeToSec(t) {
+        if (!t) return 0;
+        // Xử lý cả dấu phẩy (,) lẫn dấu chấm (.) ở phần milisecond
+        const formatted = t.replace(',', '.');
+        const parts = formatted.split(':');
+        if (parts.length === 3) {
+            return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+        }
+        return 0;
     }
 
     function timeToSec(t) {
