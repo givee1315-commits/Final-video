@@ -44,9 +44,7 @@
         p.subtitle { margin: 0 0 20px 0; color: #64748b; font-size: 14px; }
         h2 { font-size: 16px; margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px; }
 
-        .form-group {
-            margin-bottom: 16px;
-        }
+        .form-group { margin-bottom: 16px; }
 
         label {
             display: block;
@@ -55,7 +53,7 @@
             margin-bottom: 6px;
         }
 
-        input[type="file"], select, input[type="range"] {
+        input[type="file"], select {
             width: 100%;
             padding: 10px;
             border: 1px solid var(--border);
@@ -113,6 +111,7 @@
             font-size: 13px;
             font-weight: 600;
             color: #2563eb;
+            white-space: pre-line;
         }
     </style>
 </head>
@@ -121,27 +120,27 @@
 <div class="container">
     <div>
         <h1>🎙️ Tool Đọc SRT Theo Giọng Mẫu</h1>
-        <p class="subtitle">Lưu mẫu giọng đọc chính và tự động đọc nối file phụ đề SRT</p>
+        <p class="subtitle">Lưu mẫu giọng đọc chính và tự động xuất file âm thanh khớp phụ đề SRT</p>
     </div>
 
     <!-- Bước 1: Mẫu Giọng -->
     <div class="card">
         <h2>1. Chọn / Lưu Giọng Đọc Chính</h2>
         <div class="form-group">
-            <label>Tải file Audio mẫu giọng (.mp3 / .wav) để phân tích tông giọng:</label>
+            <label>Tải file Audio mẫu giọng (.mp3 / .wav) để tham chiếu:</label>
             <input type="file" id="sampleAudio" accept="audio/*">
         </div>
         
         <div class="voice-card" id="voiceStatus" style="display: none;">
             <div>
                 <strong id="voiceName">Đã lưu giọng mẫu</strong>
-                <div style="font-size: 12px; color: #64748b;" id="voiceDetail">Sẵn sàng sử dụng cho các lần sau</div>
+                <div style="font-size: 12px; color: #64748b;">Sẵn sàng sử dụng cho các lần sau</div>
             </div>
             <button style="width: auto; padding: 6px 12px; font-size: 12px;" class="btn" onclick="clearSavedVoice()">Xóa giọng</button>
         </div>
 
         <div class="form-group" style="margin-top: 15px;">
-            <label>Giọng đọc TTS tương thích (Tiếng Việt):</label>
+            <label>Giọng đọc TTS hệ thống (Tiếng Việt):</label>
             <select id="ttsVoices"></select>
         </div>
     </div>
@@ -162,7 +161,9 @@
     <!-- Bước 3: Điều khiển và xuất file -->
     <div class="card">
         <h2>3. Xử Lý & Xuất Âm Thanh</h2>
-        <button class="btn" id="generateBtn" onclick="startGeneration()">Bắt Đầu Tạo Audio Khớp SRT</button>
+        <button class="btn" id="generateBtn" onclick="startGeneration()" disabled>
+            Bắt Đầu Tạo Audio Khớp SRT
+        </button>
         <div class="status" id="statusText"></div>
 
         <audio id="finalAudio" controls style="width: 100%; margin-top: 15px; display: none;"></audio>
@@ -170,12 +171,11 @@
 </div>
 
 <script>
-    let savedVoiceSample = null;
     let parsedSRT = [];
     let synth = window.speechSynthesis;
     let voices = [];
 
-    // Tải danh sách voice hệ thống
+    // 1. Tải danh sách voice hệ thống
     function populateVoices() {
         voices = synth.getVoices();
         const select = document.getElementById('ttsVoices');
@@ -197,7 +197,7 @@
         speechSynthesis.onvoiceschanged = populateVoices;
     }
 
-    // Xử lý upload file giọng mẫu & lưu LocalStorage
+    // 2. Xử lý lưu giọng mẫu vào LocalStorage
     document.getElementById('sampleAudio').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -223,114 +223,210 @@
         document.getElementById('sampleAudio').value = '';
     }
 
-    // Load giọng cũ nếu có
-    window.onload = () => {
+    window.addEventListener('DOMContentLoaded', () => {
         const savedName = localStorage.getItem('saved_voice_name');
         if (savedName) showSavedVoice(savedName);
-    };
-
-    // Parse SRT
-    document.getElementById('srtFile').addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const text = await file.text();
-        parsedSRT = parseSRT(text);
-
-        const preview = document.getElementById('srtPreview');
-        preview.innerHTML = '';
-        parsedSRT.forEach(item => {
-            preview.innerHTML += `
-                <div class="subtitle-item">
-                    <span class="subtitle-time">[${item.start}s - ${item.end}s]</span> ${item.text}
-                </div>
-            `;
-        });
-        document.getElementById('srtPreviewGroup').style.display = 'block';
     });
 
-   function parseSRT(data) {
-        // Chuẩn hóa ký tự xuống dòng
-        const cleanData = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-        const blocks = cleanData.split(/\n\s*\n/);
-        const res = [];
+    // 3. Hàm chuẩn hóa thời gian duy nhất
+    function timeToSec(t) {
+        if (!t) return NaN;
+        const match = t.trim().match(/^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})$/);
+        if (!match) return NaN;
 
-        blocks.forEach(block => {
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-            if (lines.length >= 2) {
-                // Tìm dòng chứa mốc thời gian ->
-                const timeLineIndex = lines.findIndex(l => l.includes('-->'));
-                if (timeLineIndex !== -1) {
-                    const timeStr = lines[timeLineIndex];
-                    const times = timeStr.split('-->').map(s => s.trim());
-                    if (times.length === 2) {
-                        const textLines = lines.slice(timeLineIndex + 1).join(' ');
-                        res.push({
-                            id: timeLineIndex > 0 ? lines[0] : res.length + 1,
-                            start: timeToSec(times[0]),
-                            end: timeToSec(times[1]),
-                            text: textLines
-                        });
-                    }
-                }
+        const [, h, m, s, ms] = match;
+        return Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms.padEnd(3, '0')) / 1000;
+    }
+
+    // 4. Hàm parse SRT linh hoạt theo Regex Timestamp
+    function parseSRT(data) {
+        const cleanData = data.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
+        const lines = cleanData.split('\n');
+        const result = [];
+        const timeRegex = /^\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})(?:\s+.*)?$/;
+
+        let current = null;
+
+        function saveCurrent() {
+            if (!current) return;
+            const text = current.lines.join(' ').trim();
+            if (text) {
+                result.push({
+                    id: current.id,
+                    start: timeToSec(current.start),
+                    end: timeToSec(current.end),
+                    text
+                });
             }
-        });
-        return res;
-    }
-
-    function timeToSec(t) {
-        if (!t) return 0;
-        // Xử lý cả dấu phẩy (,) lẫn dấu chấm (.) ở phần milisecond
-        const formatted = t.replace(',', '.');
-        const parts = formatted.split(':');
-        if (parts.length === 3) {
-            return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+            current = null;
         }
-        return 0;
+
+        for (const line of lines) {
+            const match = line.match(timeRegex);
+            if (match) {
+                saveCurrent();
+                current = {
+                    id: result.length + 1,
+                    start: match[1],
+                    end: match[2],
+                    lines: []
+                };
+            } else if (current && line.trim()) {
+                current.lines.push(line.trim());
+            }
+        }
+
+        saveCurrent();
+        return result;
     }
 
-    function timeToSec(t) {
-        const [h, m, sMs] = t.split(':');
-        const [s, ms] = sMs.split(',');
-        return parseInt(h)*3600 + parseInt(m)*60 + parseInt(s) + parseInt(ms)/1000;
-    }
+    // 5. Sự kiện chọn file SRT
+    document.getElementById('srtFile').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        const status = document.getElementById('statusText');
+        const preview = document.getElementById('srtPreview');
+        const previewGroup = document.getElementById('srtPreviewGroup');
+        const generateBtn = document.getElementById('generateBtn');
 
-    // Bắt đầu đọc và ghép
-    async function startGeneration() {
-        if (parsedSRT.length === 0) {
-            alert('Vui lòng chọn file SRT!');
+        parsedSRT = [];
+        preview.replaceChildren();
+        previewGroup.style.display = 'none';
+        generateBtn.disabled = true;
+
+        if (!file) {
+            status.textContent = 'Chưa chọn file SRT.';
             return;
         }
 
-        const status = document.getElementById('statusText');
-        status.innerText = "Đang tiến hành đọc và căn chỉnh mốc thời gian...";
+        try {
+            const text = (await file.text()).replace(/^\uFEFF/, '');
+            const result = parseSRT(text);
 
-        const select = document.getElementById('ttsVoices');
-        const selectedVoiceName = select.selectedOptions[0]?.getAttribute('data-name');
-        const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+            if (result.length === 0) {
+                status.textContent = 'Không đọc được câu phụ đề. Hãy kiểm tra định dạng file SRT.';
+                console.error('Không phân tích được SRT:', text.slice(0, 1000));
+                return;
+            }
 
-        synth.cancel(); // Reset
+            const invalid = result.filter(item =>
+                !Number.isFinite(item.start) ||
+                !Number.isFinite(item.end) ||
+                item.end <= item.start ||
+                !item.text.trim()
+            );
 
-        for (let i = 0; i < parsedSRT.length; i++) {
-            const item = parsedSRT[i];
-            status.innerText = `Đang đọc câu ${i+1}/${parsedSRT.length}: "${item.text}"`;
+            if (invalid.length > 0) {
+                status.textContent = `Có ${invalid.length} câu bị lỗi timestamp hoặc nội dung.`;
+                console.error('Các câu lỗi:', invalid);
+                return;
+            }
 
-            await new Promise((resolve) => {
-                const utterance = new SpeechSynthesisUtterance(item.text);
-                if (selectedVoice) utterance.voice = selectedVoice;
-                
-                // Tùy chỉnh độ dài câu
-                const duration = item.end - item.start;
-                utterance.rate = Math.max(0.5, Math.min(2, item.text.length / (duration * 5)));
+            parsedSRT = result;
 
-                utterance.onend = () => setTimeout(resolve, 200);
-                utterance.onerror = () => resolve();
+            const fragment = document.createDocumentFragment();
+            parsedSRT.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'subtitle-item';
 
-                synth.speak(utterance);
+                const time = document.createElement('span');
+                time.className = 'subtitle-time';
+                time.textContent = `[${item.start}s - ${item.end}s] `;
+
+                div.append(time, document.createTextNode(item.text));
+                fragment.appendChild(div);
             });
-        }
 
-        status.innerText = "Đã hoàn thành đọc toàn bộ phụ đề!";
+            preview.appendChild(fragment);
+            previewGroup.style.display = 'block';
+            generateBtn.disabled = false;
+            status.textContent = `Đã đọc thành công ${parsedSRT.length} câu phụ đề.`;
+
+        } catch (error) {
+            parsedSRT = [];
+            status.textContent = 'Không thể đọc file: ' + error.message;
+            console.error(error);
+        }
+    });
+
+    // 6. Xử lý Đọc & Ghi Âm thành File Audio hoàn chỉnh
+    async function startGeneration() {
+        if (parsedSRT.length === 0) return;
+
+        const status = document.getElementById('statusText');
+        const generateBtn = document.getElementById('generateBtn');
+        const finalAudio = document.getElementById('finalAudio');
+
+        generateBtn.disabled = true;
+        finalAudio.style.display = 'none';
+        status.textContent = "Đang khởi tạo luồng ghi âm âm thanh...";
+
+        try {
+            // Khởi tạo Audio Context và Stream Destination để thu âm
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const dest = audioCtx.createMediaStreamDestination();
+            const mediaRecorder = new MediaRecorder(dest.stream);
+            const audioChunks = [];
+
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.start();
+
+            const select = document.getElementById('ttsVoices');
+            const selectedVoiceName = select.selectedOptions[0]?.getAttribute('data-name');
+            const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+
+            let currentTime = 0;
+
+            for (let i = 0; i < parsedSRT.length; i++) {
+                const item = parsedSRT[i];
+                const targetDuration = item.end - item.start;
+
+                // Thêm đoạn tĩnh (silence) nếu mốc bắt đầu câu tiếp theo chưa tới
+                if (item.start > currentTime) {
+                    const silenceGap = (item.start - currentTime) * 1000;
+                    status.textContent = `[${i+1}/${parsedSRT.length}] Đang chèn khoảng lặng (${(silenceGap/1000).toFixed(1)}s)...`;
+                    await new Promise(r => setTimeout(r, silenceGap));
+                }
+
+                status.textContent = `[${i+1}/${parsedSRT.length}] Đang ghi âm câu: "${item.text}"`;
+
+                // Đọc thoại và tự tính toán ép tốc độ đọc theo thời gian SRT
+                await new Promise((resolve) => {
+                    synth.cancel();
+                    const utterance = new SpeechSynthesisUtterance(item.text);
+                    if (selectedVoice) utterance.voice = selectedVoice;
+
+                    // Tính toán sơ bộ hệ số tốc độ (rate)
+                    const approxWords = item.text.split(' ').length;
+                    const estimatedNormalTime = approxWords * 0.35; // Khoảng 0.35s mỗi từ
+                    utterance.rate = Math.max(0.6, Math.min(2.0, estimatedNormalTime / targetDuration));
+
+                    utterance.onend = () => resolve();
+                    utterance.onerror = () => resolve();
+
+                    synth.speak(utterance);
+                });
+
+                currentTime = item.end;
+            }
+
+            // Dừng ghi âm và tạo file Audio Blob
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(blob);
+
+                finalAudio.src = audioUrl;
+                finalAudio.style.display = 'block';
+                status.textContent = "🎉 Hoàn tất! File âm thanh đã được tạo thành công ở bên dưới.";
+                generateBtn.disabled = false;
+            };
+
+            mediaRecorder.stop();
+
+        } catch (err) {
+            console.error(err);
+            status.textContent = "Lỗi trong quá trình tạo audio: " + err.message;
+            generateBtn.disabled = false;
+        }
     }
 </script>
 
